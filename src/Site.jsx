@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { db } from "./firebase";
+import { supabase } from "./supabase";
 import {
   Menu,
   X,
@@ -369,20 +368,33 @@ function VideoCard({ work, index }) {
 function WorksGrid({ worksRef }) {
   const [works, setWorks] = useState(FALLBACK_WORKS);
 
+  const fetchWorks = async () => {
+    const { data, error } = await supabase
+      .from("works")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (!error && data && data.length > 0) {
+      setWorks(data.map((w) => ({ id: w.id, title: w.title, videoId: w.video_id })));
+    } else {
+      setWorks(FALLBACK_WORKS);
+    }
+  };
+
   useEffect(() => {
-    const q = query(collection(db, "works"), orderBy("createdAt", "desc"));
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        if (!snapshot.empty) {
-          setWorks(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
-        } else {
-          setWorks(FALLBACK_WORKS);
-        }
-      },
-      () => setWorks(FALLBACK_WORKS)
-    );
-    return () => unsubscribe();
+    fetchWorks();
+
+    // الاستماع اللحظي لأي فيديو جديد يتضاف من لوحة الأدمن
+    const channel = supabase
+      .channel("public-works-changes")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "works" },
+        () => fetchWorks()
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
   }, []);
 
   return (

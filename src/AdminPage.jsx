@@ -1,18 +1,26 @@
 import { useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "./firebase";
+import { supabase } from "./supabase";
 import AdminLogin from "./AdminLogin";
 import AdminPanel from "./AdminPanel";
 
 export default function AdminPage() {
-  const [user, setUser] = useState(undefined); // undefined = بنتحقق لسه
+  const [session, setSession] = useState(undefined); // undefined = بنتحقق لسه
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, newSession) => {
+        setSession(newSession);
+      }
+    );
+
+    return () => listener.subscription.unsubscribe();
   }, []);
 
-  if (user === undefined) {
+  if (session === undefined) {
     return (
       <div className="min-h-screen bg-[#07070A] flex items-center justify-center">
         <p className="text-white/50 text-[14px]">جاري التحقق...</p>
@@ -20,5 +28,5 @@ export default function AdminPage() {
     );
   }
 
-  return user ? <AdminPanel /> : <AdminLogin onSuccess={() => {}} />;
+  return session ? <AdminPanel /> : <AdminLogin onSuccess={() => {}} />;
 }

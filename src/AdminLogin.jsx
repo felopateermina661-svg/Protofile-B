@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "./firebase";
+import { supabase } from "./supabase";
 
 export default function AdminLogin({ onSuccess }) {
   const [email, setEmail] = useState("");
@@ -12,14 +11,16 @@ export default function AdminLogin({ onSuccess }) {
     e.preventDefault();
     setError("");
     setLoading(true);
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (signInError) {
+      setError("بيانات الدخول غلط: " + signInError.message);
+    } else {
       onSuccess?.();
-    } catch (err) {
-      setError("بيانات الدخول غلط");
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   };
 
   return (
@@ -59,7 +60,9 @@ export default function AdminLogin({ onSuccess }) {
           />
 
           {error && (
-            <p className="text-red-400 text-[13px] text-center">{error}</p>
+            <p className="text-red-400 text-[13px] text-center break-words">
+              {error}
+            </p>
           )}
 
           <button

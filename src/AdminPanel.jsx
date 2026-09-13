@@ -1,16 +1,5 @@
 import { useEffect, useState } from "react";
-import { signOut } from "firebase/auth";
-import {
-  collection,
-  addDoc,
-  deleteDoc,
-  doc,
-  onSnapshot,
-  serverTimestamp,
-  orderBy,
-  query,
-} from "firebase/firestore";
-import { auth, db } from "./firebase";
+import { supabase } from "./supabase";
 
 // بيقبل لينك يوتيوب كامل أو الـ ID لوحده، ويطلع منه الـ videoId بس
 function extractVideoId(input) {
@@ -30,12 +19,34 @@ export default function AdminPanel() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const fetchVideos = async () => {
+    const { data, error: fetchError } = await supabase
+      .from("works")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (fetchError) {
+      console.error("خطأ في قراءة الفيديوهات:", fetchError);
+      setError("خطأ في القراءة: " + fetchError.message);
+    } else {
+      setVideos(data);
+    }
+  };
+
   useEffect(() => {
-    const q = query(collection(db, "works"), orderBy("createdAt", "desc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setVideos(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
-    return () => unsubscribe();
+    fetchVideos();
+
+    // الاستماع اللحظي لأي تغيير (إضافة/حذف) يحصل في جدول works
+    const channel = supabase
+      .channel("works-changes")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "works" },
+        () => fetchVideos()
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
   }, []);
 
   const handleAdd = async (e) => {
@@ -47,23 +58,34 @@ export default function AdminPanel() {
       return;
     }
     setSaving(true);
-    try {
-      await addDoc(collection(db, "works"), {
-        title: title.trim(),
-        videoId,
-        createdAt: serverTimestamp(),
-      });
+    const { error: insertError } = await supabase
+      .from("works")
+      .insert({ title: title.trim(), video_id: videoId });
+
+    if (insertError) {
+      console.error("خطأ في إضافة الفيديو:", insertError);
+      setError("خطأ: " + insertError.message);
+    } else {
       setTitle("");
       setVideoInput("");
-    } catch (err) {
-      setError("حصل خطأ أثناء الحفظ");
-    } finally {
-      setSaving(false);
     }
+    setSaving(false);
   };
 
   const handleDelete = async (id) => {
-    await deleteDoc(doc(db, "works", id));
+    const { error: deleteError } = await supabase
+      .from("works")
+      .delete()
+      .eq("id", id);
+
+    if (deleteError) {
+      console.error("خطأ في حذف الفيديو:", deleteError);
+      setError("خطأ في الحذف: " + deleteError.message);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
   };
 
   return (
@@ -77,7 +99,7 @@ export default function AdminPanel() {
             إدارة الفيديوهات
           </h1>
           <button
-            onClick={() => signOut(auth)}
+            onClick={handleLogout}
             className="text-[13px] text-[#A1A1AA] hover:text-white border border-white/10 rounded-full px-4 py-2"
             style={{ fontFamily: "'Cairo', sans-serif" }}
           >
@@ -108,7 +130,9 @@ export default function AdminPanel() {
             className="w-full rounded-xl bg-white/5 border border-white/10 focus:border-[#7C3AED]/60 outline-none px-4 py-3 text-white placeholder:text-white/30 text-left"
             style={{ fontFamily: "'Cairo', sans-serif" }}
           />
-          {error && <p className="text-red-400 text-[13px]">{error}</p>}
+          {error && (
+            <p className="text-red-400 text-[13px] break-words">{error}</p>
+          )}
           <button
             type="submit"
             disabled={saving}
